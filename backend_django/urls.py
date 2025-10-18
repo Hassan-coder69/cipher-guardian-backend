@@ -1,6 +1,6 @@
 # core/urls.py (or your_project_name/urls.py)
-import include
-
+# CORRECT
+from django.urls import path, include
 from django.contrib import admin
 from django.urls import path, include # Make sure to import 'include'
 
