@@ -1,40 +1,40 @@
 # api/views.py
+from django.http import JsonResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-import firebase_admin
 from firebase_admin import firestore
-
-# TODO: Create these helper files and functions
-# from .crypto import decrypt_message
-# from .classifier import classify_text
-
-# api/views.py
-# ... other imports
-from .crypto import decrypt_message
 from .classifier import classify_text
+from .crypto import decrypt_message
+
+def health_check(request):
+    """A simple view that returns a 200 OK status for Render's health check."""
+    return JsonResponse({"status": "healthy", "message": "Cipher Guardian API is running."})
 
 class ClassifyMessageView(APIView):
     def post(self, request, *args, **kwargs):
-        # ... (code to get data)
+        data = request.data
+        chat_id = data.get('chatId')
+        message_id = data.get('messageId')
+        encrypted_text = data.get('encryptedText')
+
+        if not all([chat_id, message_id, encrypted_text]):
+            return Response({"error": "Missing required data"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Use the REAL functions now
+            # Decrypt the text before classifying it
             decrypted_text = decrypt_message(encrypted_text, chat_id)
             flag = classify_text(decrypted_text)
             
-            print(f"Processing message {message_id} in chat {chat_id}. Decrypted: '{decrypted_text}', Flagged as: {flag}")
+            print(f"Processing message {message_id}. Decrypted: '{decrypted_text}', Flagged as: {flag}")
 
-            # ... (code to update Firestore)
-            
-            return Response({"status": "success", "flag": flag}, status=status.HTTP_200_OK)
-
-        except Exception as e:
-            # ... (error handling)
-
-            # 2. Update the message in Firestore with the new flag
+            # Update the message in Firestore with the new flag
             db = firestore.client()
             message_ref = db.collection('chats').document(chat_id).collection('messages').document(message_id)
             message_ref.update({'flag': flag})
             
             return Response({"status": "success", "flag": flag}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
