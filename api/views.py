@@ -1,4 +1,3 @@
-# api/views.py
 from django.http import JsonResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -22,13 +21,11 @@ class ClassifyMessageView(APIView):
             return Response({"error": "Missing required data"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Decrypt the text before classifying it
             decrypted_text = decrypt_message(encrypted_text, chat_id)
             flag = classify_text(decrypted_text)
             
             print(f"Processing message {message_id}. Decrypted: '{decrypted_text}', Flagged as: {flag}")
 
-            # Update the message in Firestore with the new flag
             db = firestore.client()
             message_ref = db.collection('chats').document(chat_id).collection('messages').document(message_id)
             message_ref.update({'flag': flag})
