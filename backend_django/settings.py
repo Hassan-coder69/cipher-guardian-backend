@@ -99,7 +99,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # --- Firebase Admin SDK Initialization ---
 # IMPORTANT: Update this filename to match your Secret File on Render.
-SERVICE_ACCOUNT_KEY_PATH = BASE_DIR / 'your-firebase-admin-key.json'
+SERVICE_ACCOUNT_KEY_PATH = BASE_DIR / SERVICE_ACCOUNT_KEY_PATH = BASE_DIR / 'cipher-guardian-firebase-adminsdk-a1b2c-1234567890.json'
 
 try:
     cred = credentials.Certificate(SERVICE_ACCOUNT_KEY_PATH)
