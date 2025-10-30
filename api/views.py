@@ -5,6 +5,7 @@ from rest_framework import status
 from firebase_admin import firestore
 import os
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -154,3 +155,51 @@ Respond with ONLY one word: RED, YELLOW, or GREEN."""
                 return "yellow"
         
         return "green"
+
+# ✅ This function is OUTSIDE the class (correct indentation)
+def test_classification(request):
+    """Test endpoint - doesn't update Firestore"""
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        text = data.get('text', '')
+        
+        # Test AI classification
+        use_ai = os.environ.get('USE_AI_CLASSIFICATION', 'false').lower() == 'true'
+        
+        if use_ai:
+            try:
+                from openai import OpenAI
+                api_key = os.environ.get('OPENAI_API_KEY') or os.environ.get('AI_API_KEY')
+                
+                if not api_key:
+                    return JsonResponse({"error": "No API key found"}, status=400)
+                
+                client = OpenAI(api_key=api_key)
+                
+                system_prompt = """Classify as RED (dangerous), YELLOW (suspicious), or GREEN (safe).
+Respond with ONLY one word: RED, YELLOW, or GREEN."""
+                
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": f"Classify: {text}"}
+                    ],
+                    max_tokens=10,
+                    temperature=0.1,
+                )
+                
+                classification = response.choices[0].message.content.strip().upper()
+                
+                return JsonResponse({
+                    "text": text,
+                    "classification": classification.lower(),
+                    "method": "gpt-4o-mini"
+                })
+                
+            except Exception as e:
+                return JsonResponse({"error": str(e)}, status=500)
+        else:
+            return JsonResponse({"error": "AI not enabled"}, status=400)
+    
+    return JsonResponse({"message": "Send POST request with 'text' field"})

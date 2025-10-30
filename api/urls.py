@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import ClassifyMessageView, health_check
+from .views import ClassifyMessageView, health_check, test_classification
 
 urlpatterns = [
     # This root path now points to your health check view
@@ -7,4 +7,5 @@ urlpatterns = [
     
     # This is your existing API endpoint
     path('classify/', ClassifyMessageView.as_view(), name='classify-message'),
+    path('test/', test_classification, name='test-classification'),
 ]
