@@ -36,7 +36,9 @@ class ClassifyMessageView(APIView):
             
             if use_ai:
                 logger.info(f"Using AI classification for message {message_id}")
-                flag = self.classify_with_ai(encrypted_text)
+                # Get conversation context (last 10 messages)
+                context = self.get_conversation_context(chat_id, message_id)
+                flag = self.classify_with_ai(encrypted_text, context)
             else:
                 logger.info(f"Using keyword classification for message {message_id}")
                 flag = self.classify_with_keywords(encrypted_text)
@@ -63,8 +65,40 @@ class ClassifyMessageView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-    def classify_with_ai(self, text):
-        """Classify using OpenAI GPT-4o-mini"""
+    def get_conversation_context(self, chat_id, current_message_id):
+        """
+        Fetch the last 10 messages from the conversation for context
+        """
+        try:
+            db = firestore.client()
+            messages_ref = db.collection('chats').document(chat_id).collection('messages')
+            
+            # Get last 10 messages ordered by creation time
+            messages_query = messages_ref.order_by('createdAt', direction=firestore.Query.DESCENDING).limit(10)
+            messages = messages_query.stream()
+            
+            context = []
+            for msg in messages:
+                msg_data = msg.to_dict()
+                # Don't include the current message in context
+                if msg.id != current_message_id:
+                    context.append({
+                        'text': msg_data.get('text', ''),
+                        'senderId': msg_data.get('senderId', ''),
+                        'timestamp': msg_data.get('createdAt')
+                    })
+            
+            # Reverse to get chronological order (oldest first)
+            context.reverse()
+            logger.info(f"Retrieved {len(context)} messages for context")
+            return context
+            
+        except Exception as e:
+            logger.warning(f"Could not fetch context: {str(e)}")
+            return []
+
+    def classify_with_ai(self, text, context=None):
+        """Classify using OpenAI GPT-4o-mini with conversation context"""
         try:
             from openai import OpenAI
             
@@ -76,46 +110,70 @@ class ClassifyMessageView(APIView):
             
             client = OpenAI(api_key=api_key)
             
+            # Build context string
+            context_str = ""
+            if context and len(context) > 0:
+                context_str = "\n\nPrevious conversation context (last few messages):\n"
+                for i, msg in enumerate(context, 1):
+                    # Show only first 50 chars of each message to save tokens
+                    preview = msg['text'][:50] + "..." if len(msg['text']) > 50 else msg['text']
+                    context_str += f"Message {i}: {preview}\n"
+            
             system_prompt = """You are a content moderation assistant for a secure messaging app.
 
-Classify messages into three categories:
+Classify messages into three categories based on INTENT and CONTEXT:
 
-RED (Dangerous/Harmful):
-- Direct threats of violence or harm
-- Harassment, bullying, or severe abuse
-- Explicit hate speech or discrimination
-- Self-harm or suicide content
-- Doxxing threats or personal information exposure
-- Illegal activity planning
+🔴 RED (Dangerous/Harmful) - REAL THREATS:
+- Credible threats of violence or harm
+- Serious harassment or bullying with intent to harm
+- Genuine hate speech with malicious intent
+- Self-harm encouragement or suicide promotion
+- Doxxing threats with actual information
+- Planning illegal activities
 
-YELLOW (Suspicious/Concerning):
-- Potential scams or phishing attempts
+🟡 YELLOW (Suspicious/Concerning) - POTENTIAL RISKS:
+- Scam attempts or phishing
 - Financial fraud indicators
-- Unusual requests for personal information
+- Requests for sensitive personal information
 - Spam or unsolicited commercial content
-- Social engineering attempts
+- Manipulative or coercive language
 - Suspicious urgency tactics
 
-GREEN (Safe):
-- Normal conversation
-- Casual language and appropriate content
-- Regular social interactions
-- Friendly exchanges
+🟢 GREEN (Safe) - ACCEPTABLE:
+- Normal conversation between friends
+- Playful banter or friendly teasing
+- Dark humor without malicious intent
+- Casual profanity in casual context
+- Exaggerated expressions (e.g., "I'm dying" = laughing hard)
+- Regular disagreements without threats
+
+CRITICAL RULES:
+1. Consider the RELATIONSHIP: Friends joking vs strangers threatening
+2. Check for REPEATED patterns: One joke vs persistent harassment
+3. Analyze TONE: Playful vs menacing
+4. Context matters: "kill it" in gaming vs real life
+5. When in doubt between RED and GREEN, choose YELLOW
+6. Encrypted messages starting with "U2FsdGVk" should be judged by patterns
 
 Respond with ONLY one word: RED, YELLOW, or GREEN."""
+
+            # Create user prompt with context
+            user_prompt = f"Classify this message: {text[:500]}"
+            if context_str:
+                user_prompt += context_str
 
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Classify this message: {text[:500]}"}
+                    {"role": "user", "content": user_prompt}
                 ],
                 max_tokens=10,
                 temperature=0.1,
             )
             
             classification = response.choices[0].message.content.strip().upper()
-            logger.info(f"GPT classification result: {classification}")
+            logger.info(f"GPT classification result: {classification} (with {len(context or [])} context messages)")
             
             if classification == "RED":
                 return "red"
@@ -137,8 +195,7 @@ Respond with ONLY one word: RED, YELLOW, or GREEN."""
             "kill", "murder", "attack", "bomb", "weapon", "hurt you", 
             "find you", "watch your back", "expose you", "doxx", 
             "suicide", "kill yourself", "kys", "die", "threat",
-            "fuck you", "kill you", "kill your", "going to kill",
-            "i will kill", "destroy you", "fuck off"
+            "i will kill", "going to kill", "destroy you"
         ]
         
         yellow_keywords = [
@@ -158,7 +215,7 @@ Respond with ONLY one word: RED, YELLOW, or GREEN."""
         
         return "green"
 
-# ✅ This function is OUTSIDE the class (correct indentation)
+@csrf_exempt
 def test_classification(request):
     """Test endpoint - doesn't update Firestore"""
     if request.method == 'POST':
