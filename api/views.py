@@ -136,7 +136,9 @@ Respond with ONLY one word: RED, YELLOW, or GREEN."""
         red_keywords = [
             "kill", "murder", "attack", "bomb", "weapon", "hurt you", 
             "find you", "watch your back", "expose you", "doxx", 
-            "suicide", "kill yourself", "kys", "die", "threat"
+            "suicide", "kill yourself", "kys", "die", "threat",
+            "fuck you", "kill you", "kill your", "going to kill",
+            "i will kill", "destroy you", "fuck off"
         ]
         
         yellow_keywords = [
