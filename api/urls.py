@@ -1,11 +1,8 @@
 from django.urls import path
-from .views import ClassifyMessageView, health_check, test_classification
+from .views import ClassifyTextView, ClassifyMessageView, health_check
 
 urlpatterns = [
-    # This root path now points to your health check view
-    path('', health_check, name='health-check'),
-    
-    # This is your existing API endpoint
-    path('classify/', ClassifyMessageView.as_view(), name='classify-message'),
-    path('test/', test_classification, name='test-classification'),
+    path('', health_check, name='health_check'),
+    path('classify-text/', ClassifyTextView.as_view(), name='classify_text'),  # NEW: For frontend
+    path('classify/', ClassifyMessageView.as_view(), name='classify_message'),  # LEGACY: For Cloud Function
 ]
