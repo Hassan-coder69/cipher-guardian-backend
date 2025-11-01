@@ -120,43 +120,45 @@ class ClassifyMessageView(APIView):
                     preview = msg['text'][:50] + "..." if len(msg['text']) > 50 else msg['text']
                     context_str += f"Message {i}: {preview}\n"
             
-            system_prompt = """You are a content moderation assistant for a secure messaging app.
+            system_prompt = """You are a strict content moderation assistant for a secure messaging app.
 
-Classify messages into three categories based on INTENT and CONTEXT:
+Classify messages into three categories:
 
-🔴 RED (Dangerous/Harmful) - REAL THREATS:
-- Credible threats of violence or harm
-- Serious harassment or bullying with intent to harm
-- Genuine hate speech with malicious intent
-- Self-harm encouragement or suicide promotion
-- Doxxing threats with actual information
+🔴 RED (Dangerous/Harmful) - FLAG IMMEDIATELY:
+- ANY direct insults, slurs, or aggressive profanity directed at someone
+- Examples: "fuck you", "bitch", "asshole", "idiot", when directed at another person
+- Threats of violence or harm (even if seemingly joking)
+- Harassment, bullying, or persistent negative behavior
+- Hate speech with malicious intent
+- Self-harm or suicide encouragement
+- Doxxing threats
 - Planning illegal activities
+- Racial slurs or discriminatory language
 
-🟡 YELLOW (Suspicious/Concerning) - POTENTIAL RISKS:
+🟡 YELLOW (Suspicious) - INVESTIGATE:
 - Scam attempts or phishing
-- Financial fraud indicators
+- Financial fraud indicators  
 - Requests for sensitive personal information
 - Spam or unsolicited commercial content
 - Manipulative or coercive language
 - Suspicious urgency tactics
+- Prize/lottery/money offers
 
-🟢 GREEN (Safe) - ACCEPTABLE:
-- Normal conversation between friends
-- Playful banter or friendly teasing
-- Dark humor without malicious intent
-- Casual profanity in casual context
-- Exaggerated expressions (e.g., "I'm dying" = laughing hard)
-- Regular disagreements without threats
+🟢 GREEN (Safe) - ALLOW:
+- Normal friendly conversation
+- Casual non-directed profanity (e.g., "oh shit" as exclamation, not "you're shit")
+- Playful teasing WITH clear friendly context
+- Regular disagreements without insults
+- Exaggerated expressions (e.g., "I'm dying" = laughing)
 
-CRITICAL RULES:
-1. Consider the RELATIONSHIP: Friends joking vs strangers threatening
-2. Check for REPEATED patterns: One joke vs persistent harassment
-3. Analyze TONE: Playful vs menacing
-4. Context matters: "kill it" in gaming vs real life
-5. When in doubt between RED and GREEN, choose YELLOW
-6. Encrypted messages starting with "U2FsdGVk" should be judged by patterns
+CLASSIFICATION RULES:
+1. **Profanity directed AT someone = RED**: "fuck you", "you're an idiot" = RED
+2. **Profanity as exclamation = GREEN**: "oh fuck", "holy shit" = GREEN  
+3. **Insults = RED**: Even mild insults like "stupid", "dumb" directed at person
+4. **When in doubt, choose RED over YELLOW**: Better safe than sorry
+5. **Context matters ONLY if clearly friendly**: Need strong evidence of friendship
 
-Respond with ONLY one word: RED, YELLOW, or GREEN."""
+RESPOND WITH ONLY ONE WORD: RED, YELLOW, or GREEN."""
 
             # Create user prompt with context
             user_prompt = f"Classify this message: {text[:500]}"
@@ -196,7 +198,8 @@ Respond with ONLY one word: RED, YELLOW, or GREEN."""
             "kill", "murder", "attack", "bomb", "weapon", "hurt you", 
             "find you", "watch your back", "expose you", "doxx", 
             "suicide", "kill yourself", "kys", "die", "threat",
-            "i will kill", "going to kill", "destroy you"
+            "i will kill", "going to kill", "destroy you",
+            "fuck you", "bitch", "asshole", "cunt", "dick head"
         ]
         
         yellow_keywords = [
