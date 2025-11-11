@@ -151,6 +151,77 @@ RESPOND WITH ONLY: RED, YELLOW, or GREEN."""
         return "green"
 
 
+class GenerateAIOverviewView(APIView):
+    """Generate AI overview using OpenAI GPT-4o-mini"""
+    
+    def post(self, request, *args, **kwargs):
+        data = request.data
+        user_data = data.get('userData')
+        
+        if not user_data:
+            return Response(
+                {"error": "Missing userData"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            from openai import OpenAI
+            
+            api_key = os.environ.get('OPENAI_API_KEY') or os.environ.get('AI_API_KEY')
+            
+            if not api_key:
+                return Response(
+                    {"error": "No OpenAI API key configured"}, 
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
+            client = OpenAI(api_key=api_key)
+            
+            # Format data for AI
+            prompt = f"""Analyze this user's messaging behavior:
+
+User: {user_data.get('userName')}
+Total Messages: {user_data.get('totalMessages')}
+Safe (Green): {user_data.get('greenCount')} ({user_data.get('greenPercentage')}%)
+Suspicious (Yellow): {user_data.get('yellowCount')} ({user_data.get('yellowPercentage')}%)
+Dangerous (Red): {user_data.get('redCount')} ({user_data.get('redPercentage')}%)
+Risk Score: {user_data.get('riskScore')}/10
+Safety Score: {user_data.get('safetyScore')}/100
+
+Recent flagged messages:
+{chr(10).join([f"- [{m.get('flag', '').upper()}] {m.get('text', '')}" for m in user_data.get('recentFlaggedMessages', [])])}
+
+Provide a 2-3 sentence safety assessment focusing on:
+1. Overall safety level (safe, cautious, risky)
+2. Key concerns if any
+3. Recommendation (continue chatting / be cautious / consider blocking)
+
+Keep it professional and concise."""
+            
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are a security analyst for a messaging app."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=500,
+                temperature=0.7,
+            )
+            
+            overview = response.choices[0].message.content.strip()
+            
+            return Response({
+                "status": "success",
+                "overview": overview
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"AI overview error: {str(e)}")
+            return Response(
+                {"error": str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
 class ClassifyMessageView(APIView):
     """
     LEGACY: For Cloud Function to classify already-saved messages
