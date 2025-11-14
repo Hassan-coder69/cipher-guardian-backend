@@ -1,3 +1,6 @@
+# views.py - ENHANCED AI CLASSIFICATION
+# Corrected version with proper Python syntax
+
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.views import APIView
@@ -7,21 +10,13 @@ from firebase_admin import firestore
 import os
 import logging
 import json
+import re
 
 logger = logging.getLogger(__name__)
 
-def health_check(request):
-    """Health check endpoint"""
-    return JsonResponse({
-        "status": "healthy", 
-        "message": "Cipher Guardian API is running.",
-        "ai_enabled": os.environ.get('USE_AI_CLASSIFICATION', 'false') == 'true'
-    })
-
 class ClassifyTextView(APIView):
     """
-    NEW: Classify plain text BEFORE encryption
-    This endpoint doesn't need chatId/messageId since it's called before saving to Firestore
+    Classify plain text BEFORE encryption with enhanced AI and fallback
     """
     def post(self, request, *args, **kwargs):
         data = request.data
@@ -37,13 +32,13 @@ class ClassifyTextView(APIView):
             use_ai = os.environ.get('USE_AI_CLASSIFICATION', 'false').lower() == 'true'
             
             if use_ai:
-                logger.info(f"Classifying text with AI: {plain_text[:50]}...")
+                logger.info(f"Classifying with AI: {plain_text[:50]}...")
                 flag = self.classify_with_ai(plain_text)
             else:
-                logger.info(f"Classifying text with keywords: {plain_text[:50]}...")
-                flag = self.classify_with_keywords(plain_text)
+                logger.info(f"Classifying with keywords: {plain_text[:50]}...")
+                flag = self.classify_with_enhanced_keywords(plain_text)
             
-            logger.info(f"Text classified as: {flag}")
+            logger.info(f"Classification result: {flag}")
             
             return Response({
                 "status": "success", 
@@ -59,7 +54,9 @@ class ClassifyTextView(APIView):
             )
 
     def classify_with_ai(self, text):
-        """Classify using OpenAI GPT-4o-mini"""
+        """
+        Enhanced AI classification with smarter prompts
+        """
         try:
             from openai import OpenAI
             
@@ -67,53 +64,72 @@ class ClassifyTextView(APIView):
             
             if not api_key:
                 logger.error("No OpenAI API key found")
-                return self.classify_with_keywords(text)
+                return self.classify_with_enhanced_keywords(text)
             
             client = OpenAI(api_key=api_key)
             
-            system_prompt = """You are a strict content moderation assistant for a secure messaging app.
+            # ✅ ENHANCED: More sophisticated system prompt
+            system_prompt = """You are an advanced content moderation AI for a secure messaging platform.
 
-Classify messages into three categories:
+Your task: Analyze messages and classify them into THREE categories based on INTENT and CONTEXT.
 
-🔴 RED (Dangerous/Harmful) - FLAG IMMEDIATELY:
-- ANY insults or aggressive language directed at someone
-- Examples: "fuck you", "you're stupid", "bitch", "asshole", "idiot" 
-- Threats of violence or harm
-- Harassment or bullying
-- Hate speech or slurs
-- Discriminatory language
+🔴 RED (Immediate Threat) - Dangerous, harmful, or illegal content:
+├─ Direct threats: "I'll kill you", "I'm gonna hurt you", "You're dead"
+├─ Explicit harassment: "fuck you", "you stupid bitch", "kill yourself"  
+├─ Hate speech: slurs, discriminatory attacks on protected groups
+├─ Violence: threats of physical harm, murder, assault
+├─ Self-harm: encouraging suicide or self-injury
+├─ Illegal activity: drug deals, weapon sales, explicit crimes
+└─ Child exploitation: ANY content sexualizing minors
 
-🟡 YELLOW (Suspicious) - INVESTIGATE:
-- Scam attempts ("you won", "claim prize")
-- Phishing or fraud indicators
-- Requests for sensitive information
-- Spam or commercial content
+🟡 YELLOW (Suspicious) - Scams, phishing, or manipulation:
+├─ Financial scams: "you won $1000", "claim your prize"
+├─ Phishing: "verify your account", "click here urgent"
+├─ Fraud attempts: "send money now", "wire transfer needed"
+├─ Suspicious links: bit.ly with urgent language
+├─ Identity theft: "confirm your password", "account suspended"
+├─ Romance scams: rapid intimacy + money requests
+└─ Job scams: "work from home", "easy money", unrealistic promises
 
-🟢 GREEN (Safe) - ALLOW:
-- Normal conversation ("hello", "hi", "how are you")
-- Non-directed exclamations ("oh shit!", "damn")
-- Friendly chat
+🟢 GREEN (Safe) - Normal conversation:
+├─ Friendly chat: "hello", "how are you", "what's up"
+├─ Casual profanity NOT directed at person: "oh shit!", "that's fucking cool"
+├─ Venting/expressing frustration: "I hate Mondays", "this sucks"
+├─ Questions & normal discussion
+├─ Sharing information, plans, opinions
+└─ Jokes, memes, pop culture references (unless harmful)
 
-RULES:
-1. "fuck you" = RED | "oh fuck" = GREEN
-2. Insults directed at person = RED
-3. Simple words like "gay", "hello", "hi" = GREEN
-4. When unsure, default to GREEN unless clearly hostile
+CRITICAL RULES:
+1. Context matters: "fuck" alone ≠ threat | "fuck you" = threat
+2. Direction matters: "you're stupid" = RED | "this is stupid" = GREEN
+3. Intent over words: Analyze if genuine threat vs casual expression
+4. Default to GREEN unless clear hostile intent or scam pattern
+5. Friends can curse together: "dude that's sick!" = GREEN
+6. Venting ≠ threatening: "I hate my boss" = GREEN
 
-RESPOND WITH ONLY: RED, YELLOW, or GREEN."""
+RESPOND WITH ONLY ONE WORD: RED, YELLOW, or GREEN
+
+Examples:
+"fuck you asshole" → RED (direct insult)
+"oh fuck that's amazing" → GREEN (excitement)
+"you won $5000 click here" → YELLOW (scam)
+"wanna grab coffee later?" → GREEN (normal)
+"I'll beat your ass" → RED (threat)
+"I'm so tired of this shit" → GREEN (venting)
+"""
 
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Classify: {text}"}
+                    {"role": "user", "content": f"Classify this message:\n\n\"{text}\""}
                 ],
                 max_tokens=10,
                 temperature=0.1,
             )
             
             classification = response.choices[0].message.content.strip().upper()
-            logger.info(f"GPT result: {classification}")
+            logger.info(f"AI classification: {classification}")
             
             if classification == "RED":
                 return "red"
@@ -124,166 +140,133 @@ RESPOND WITH ONLY: RED, YELLOW, or GREEN."""
                 
         except Exception as e:
             logger.error(f"OpenAI error: {str(e)}")
-            return self.classify_with_keywords(text)
+            return self.classify_with_enhanced_keywords(text)
 
-    def classify_with_keywords(self, text):
-        """Fallback keyword classification"""
-        text_lower = text.lower() if text else ""
+    def classify_with_enhanced_keywords(self, text):
+        """
+        ✅ ENHANCED: More comprehensive keyword detection with pattern matching
+        """
+        if not text:
+            return "green"
+            
+        text_lower = text.lower().strip()
         
-        red_keywords = [
-            "fuck you", "kill you", "bitch", "asshole", "cunt",
-            "idiot", "stupid", "hate you", "kill", "murder", "attack"
+        # ========== RED PATTERNS (Threats & Harassment) ==========
+        
+        # Direct threats of violence
+        violence_patterns = [
+            r'\b(kill|murder|stab|shoot|beat|hurt|attack)\s+(you|him|her|them)\b',
+            r'\b(i\'ll|ima|imma|gonna)\s+(kill|hurt|beat|fuck\s+up)\s+you\b',
+            r'\byou(\'re|r)\s+(dead|gonna die)\b',
+            r'\bwatch your back\b',
         ]
         
-        yellow_keywords = [
-            "prize", "winner", "won", "congratulations",
-            "claim", "free money", "verify account"
+        # Direct personal insults (targeted harassment)
+        insult_patterns = [
+            r'\bfuck\s+you\b',
+            r'\bfuk\s+u\b', 
+            r'\byou(\'re|r)\s+(stupid|dumb|idiot|retard|worthless|pathetic)\b',
+            r'\b(stupid|dumb|idiot)\s+(bitch|fuck|ass)\b',
+            r'\bkill yourself\b',
+            r'\bkys\b',  # "kill yourself" abbreviation
+        ]
+        
+        # Hate speech and slurs
+        hate_speech = [
+            "nigger", "nigga", "faggot", "fag", "tranny", 
+            "kike", "chink", "wetback", "raghead",
+        ]
+        
+        # Check violence patterns
+        for pattern in violence_patterns:
+            if re.search(pattern, text_lower):
+                logger.info(f"🔴 Violence pattern matched: {pattern}")
+                return "red"
+        
+        # Check insult patterns  
+        for pattern in insult_patterns:
+            if re.search(pattern, text_lower):
+                logger.info(f"🔴 Insult pattern matched: {pattern}")
+                return "red"
+        
+        # Check hate speech (exact match)
+        for slur in hate_speech:
+            if slur in text_lower:
+                logger.info(f"🔴 Hate speech detected: {slur}")
+                return "red"
+        
+        # Additional direct red keywords
+        red_keywords = [
+            "i'll kill", "gonna kill", "going to kill",
+            "fuck you", "screw you", "hate you",
+            "piece of shit", "worthless", "die",
         ]
         
         for keyword in red_keywords:
             if keyword in text_lower:
+                logger.info(f"🔴 Red keyword: {keyword}")
                 return "red"
         
-        for keyword in yellow_keywords:
-            if keyword in text_lower:
+        # ========== YELLOW PATTERNS (Scams & Phishing) ==========
+        
+        # Financial scams
+        scam_patterns = [
+            r'\b(you won|you(\'ve| have) won|congratulations you)\b.*\$([\d,]+)',
+            r'\b(claim|collect|redeem)\s+(your|the)\s+(prize|reward|money)\b',
+            r'\b(bitcoin|btc|crypto|cryptocurrency)\s+(investment|opportunity)\b',
+            r'\b(wire transfer|western union|gift card)\b',
+            r'\bnigerian prince\b',
+        ]
+        
+        # Phishing attempts
+        phishing_patterns = [
+            r'\bverify\s+(your|the)\s+account\b',
+            r'\baccount\s+(suspended|locked|frozen)\b',
+            r'\bunusual\s+activity\s+(detected|found)\b',
+            r'\bconfirm\s+(your|the)\s+password\b',
+            r'\b(urgent|immediate)\s+action\s+required\b',
+            r'\bclick\s+here\s+(now|immediately|urgently)\b',
+        ]
+        
+        # Check scam patterns
+        for pattern in scam_patterns:
+            if re.search(pattern, text_lower):
+                logger.info(f"🟡 Scam pattern matched: {pattern}")
                 return "yellow"
         
-        return "green"
-
-
-class GenerateAIOverviewView(APIView):
-    """Generate AI overview using OpenAI GPT-4o-mini"""
-    
-    def post(self, request, *args, **kwargs):
-        data = request.data
-        user_data = data.get('userData')
+        # Check phishing patterns
+        for pattern in phishing_patterns:
+            if re.search(pattern, text_lower):
+                logger.info(f"🟡 Phishing pattern matched: {pattern}")
+                return "yellow"
         
-        if not user_data:
-            return Response(
-                {"error": "Missing userData"}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            from openai import OpenAI
-            
-            api_key = os.environ.get('OPENAI_API_KEY') or os.environ.get('AI_API_KEY')
-            
-            if not api_key:
-                return Response(
-                    {"error": "No OpenAI API key configured"}, 
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-            
-            client = OpenAI(api_key=api_key)
-            
-            # Format data for AI
-            prompt = f"""Analyze this user's messaging behavior:
-
-User: {user_data.get('userName')}
-Total Messages: {user_data.get('totalMessages')}
-Safe (Green): {user_data.get('greenCount')} ({user_data.get('greenPercentage')}%)
-Suspicious (Yellow): {user_data.get('yellowCount')} ({user_data.get('yellowPercentage')}%)
-Dangerous (Red): {user_data.get('redCount')} ({user_data.get('redPercentage')}%)
-Risk Score: {user_data.get('riskScore')}/10
-Safety Score: {user_data.get('safetyScore')}/100
-
-Recent flagged messages:
-{chr(10).join([f"- [{m.get('flag', '').upper()}] {m.get('text', '')}" for m in user_data.get('recentFlaggedMessages', [])])}
-
-Provide a 2-3 sentence safety assessment focusing on:
-1. Overall safety level (safe, cautious, risky)
-2. Key concerns if any
-3. Recommendation (continue chatting / be cautious / consider blocking)
-
-Keep it professional and concise."""
-            
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are a security analyst for a messaging app."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=500,
-                temperature=0.7,
-            )
-            
-            overview = response.choices[0].message.content.strip()
-            
-            return Response({
-                "status": "success",
-                "overview": overview
-            }, status=status.HTTP_200_OK)
-            
-        except Exception as e:
-            logger.error(f"AI overview error: {str(e)}")
-            return Response(
-                {"error": str(e)}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-        
-class ClassifyMessageView(APIView):
-    """
-    LEGACY: For Cloud Function to classify already-saved messages
-    This is kept for backward compatibility but won't work well with encrypted text
-    """
-    def post(self, request, *args, **kwargs):
-        data = request.data
-        chat_id = data.get('chatId')
-        message_id = data.get('messageId')
-        encrypted_text = data.get('encryptedText')
-
-        if not all([chat_id, message_id, encrypted_text]):
-            return Response(
-                {"error": "Missing required data"}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            # Note: This will classify encrypted text (won't work well)
-            logger.warning("Classifying encrypted text - consider using /classify-text/ endpoint instead")
-            flag = self.classify_with_keywords(encrypted_text)
-            
-            logger.info(f"Message {message_id} classified as: {flag}")
-
-            # Update Firestore
-            db = firestore.client()
-            message_ref = db.collection('chats').document(chat_id).collection('messages').document(message_id)
-            message_ref.update({'flag': flag})
-            
-            return Response({
-                "status": "success", 
-                "flag": flag,
-                "messageId": message_id,
-                "method": "keywords (encrypted text)"
-            }, status=status.HTTP_200_OK)
-
-        except Exception as e:
-            logger.error(f"Classification error: {str(e)}")
-            return Response(
-                {"error": str(e)}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    def classify_with_keywords(self, text):
-        """Fallback keyword classification"""
-        text_lower = text.lower() if text else ""
-        
-        red_keywords = [
-            "fuck you", "kill you", "bitch", "asshole",
-            "kill", "murder", "attack", "threat"
-        ]
+        # Suspicious URL patterns with urgency
+        if re.search(r'(bit\.ly|tinyurl|goo\.gl)', text_lower):
+            urgency_words = ["urgent", "now", "immediately", "quick", "limited time"]
+            if any(word in text_lower for word in urgency_words):
+                logger.info("🟡 Suspicious link with urgency")
+                return "yellow"
         
         yellow_keywords = [
-            "prize", "winner", "congratulations you won"
+            "you've won", "you won", "claim prize", "free money",
+            "verify account", "send money", "act now", "limited time",
+            "congratulations winner", "claim reward",
         ]
-        
-        for keyword in red_keywords:
-            if keyword in text_lower:
-                return "red"
         
         for keyword in yellow_keywords:
             if keyword in text_lower:
+                logger.info(f"🟡 Yellow keyword: {keyword}")
                 return "yellow"
         
+        # ========== DEFAULT: GREEN (Safe) ==========
+        logger.info("🟢 No threats or scams detected")
         return "green"
+
+
+def health_check(request):
+    """Health check endpoint"""
+    return JsonResponse({
+        "status": "healthy", 
+        "message": "Cipher Guardian API is running.",
+        "ai_enabled": os.environ.get('USE_AI_CLASSIFICATION', 'false') == 'true'
+    })
