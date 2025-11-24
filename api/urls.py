@@ -1,6 +1,5 @@
 from django.urls import path
-from .views import ClassifyTextView, ClassifyMessageView, health_check
-from .views import GenerateAIOverviewView
+from .views import ClassifyTextView, ClassifyMessageView, health_check, generate_overview
 
 urlpatterns = [
     path('', health_check, name='health_check'),

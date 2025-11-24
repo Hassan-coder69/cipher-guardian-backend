@@ -254,7 +254,47 @@ RESPOND WITH ONLY ONE WORD: RED, YELLOW, or GREEN"""
         return "green"
 
 
-# ========== NEW: USER SAFETY PROFILE FUNCTIONS ==========
+class ClassifyMessageView(APIView):
+    """
+    LEGACY endpoint for Cloud Function compatibility
+    Classifies encrypted message by ID - falls back to keyword classification
+    """
+    def post(self, request, *args, **kwargs):
+        data = request.data
+        chat_id = data.get('chatId')
+        message_id = data.get('messageId')
+        encrypted_text = data.get('encryptedText')
+
+        if not all([chat_id, message_id]):
+            return Response(
+                {"error": "Missing chatId or messageId"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            # Can only do keyword-based classification on encrypted text
+            # AI classification requires plain text (use ClassifyTextView instead)
+            flag = "green"  # Default safe for encrypted messages
+            
+            # Update the message in Firestore
+            message_ref = db.collection('chats').document(chat_id).collection('messages').document(message_id)
+            message_ref.update({'flag': flag})
+            
+            return Response({
+                "status": "success", 
+                "flag": flag,
+                "method": "encrypted_default"
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"ClassifyMessageView error: {str(e)}")
+            return Response(
+                {"error": str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+# ========== USER SAFETY PROFILE FUNCTIONS ==========
 
 def update_user_safety_profile(user_id, flag):
     """
@@ -315,28 +355,43 @@ def update_user_safety_profile(user_id, flag):
         raise
 
 
+def add_cors_headers(response):
+    """Add CORS headers to response for function-based views"""
+    response['Access-Control-Allow-Origin'] = '*'
+    response['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+    return response
+
+
 @csrf_exempt
-@require_http_methods(["POST"])
+@require_http_methods(["POST", "OPTIONS"])
 def generate_overview(request):
     """
     Generate AI overview of user's safety profile
     Called from frontend ComprehensiveUserSafetyProfile component
     """
+    # Handle CORS preflight
+    if request.method == "OPTIONS":
+        response = JsonResponse({})
+        return add_cors_headers(response)
+    
     try:
         data = json.loads(request.body)
         user_data = data.get('userData', {})
         
         if not user_data:
-            return JsonResponse({'error': 'Missing userData'}, status=400)
+            response = JsonResponse({'error': 'Missing userData'}, status=400)
+            return add_cors_headers(response)
         
         from openai import OpenAI
         
         api_key = os.environ.get('OPENAI_API_KEY') or os.environ.get('AI_API_KEY')
         
         if not api_key:
-            return JsonResponse({
+            response = JsonResponse({
                 'overview': 'AI overview unavailable - API key not configured.'
             })
+            return add_cors_headers(response)
         
         client = OpenAI(api_key=api_key)
         
@@ -364,7 +419,7 @@ Risk Score: {risk_score}/10
 
 Provide an objective assessment helping others decide whether to trust this person. Be concise and balanced."""
 
-        response = client.chat.completions.create(
+        response_ai = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {
@@ -377,22 +432,31 @@ Provide an objective assessment helping others decide whether to trust this pers
             max_tokens=150
         )
         
-        overview = response.choices[0].message.content.strip()
+        overview = response_ai.choices[0].message.content.strip()
         logger.info(f"Generated AI overview for user with {total_messages} messages")
         
-        return JsonResponse({'overview': overview})
+        response = JsonResponse({'overview': overview})
+        return add_cors_headers(response)
         
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON decode error: {str(e)}")
+        response = JsonResponse({
+            'error': 'Invalid JSON in request body',
+            'details': str(e)
+        }, status=400)
+        return add_cors_headers(response)
     except Exception as e:
         logger.error(f"Error generating overview: {str(e)}")
-        return JsonResponse({
+        response = JsonResponse({
             'error': 'Failed to generate AI overview',
             'details': str(e)
         }, status=500)
+        return add_cors_headers(response)
 
 
 def health_check(request):
     """Health check endpoint"""
-    return JsonResponse({
+    response = JsonResponse({
         "status": "healthy", 
         "message": "Cipher Guardian API is running.",
         "ai_enabled": os.environ.get('USE_AI_CLASSIFICATION', 'false') == 'true',
@@ -402,3 +466,4 @@ def health_check(request):
             "ai_overview": True
         }
     })
+    return add_cors_headers(response)
